@@ -1,0 +1,12 @@
+const express=require("express");
+const {Pool}=require("pg");
+const app=express(),port=Number(process.env.PORT||3000);
+app.use(express.json({limit:"32kb"}));
+const pool=new Pool({host:process.env.DB_HOST||"db",port:Number(process.env.DB_PORT||5432),database:process.env.DB_NAME||"inventorydb",user:process.env.DB_USER||"inventoryuser",password:process.env.DB_PASSWORD||"inventorypass123",connectionTimeoutMillis:3000});
+async function init(){await pool.query(`CREATE TABLE IF NOT EXISTS products(id SERIAL PRIMARY KEY,name VARCHAR(100) NOT NULL,quantity INTEGER NOT NULL CHECK(quantity>=0),price NUMERIC(10,2) NOT NULL CHECK(price>=0),created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`)}
+app.get("/api/health",async(_req,res)=>{try{await pool.query("SELECT 1");res.json({status:"ok",database:"connected"})}catch(e){res.status(503).json({status:"error",database:"unavailable"})}});
+app.get("/api/products",async(_req,res)=>{try{const r=await pool.query("SELECT id,name,quantity,price FROM products ORDER BY id DESC");res.json(r.rows)}catch(e){console.error(e.message);res.status(500).json({error:"Could not retrieve products"})}});
+app.post("/api/products",async(req,res)=>{const {name,quantity,price}=req.body||{},n=typeof name==="string"?name.trim():"",q=Number(quantity),p=Number(price);if(!n||n.length>100||!Number.isInteger(q)||q<0||!Number.isFinite(p)||p<0)return res.status(400).json({error:"Provide a name, non-negative integer quantity, and non-negative price"});try{const r=await pool.query("INSERT INTO products(name,quantity,price) VALUES($1,$2,$3) RETURNING id,name,quantity,price",[n,q,p]);res.status(201).json(r.rows[0])}catch(e){console.error(e.message);res.status(500).json({error:"Could not add product"})}});
+app.delete("/api/products/:id",async(req,res)=>{const id=Number(req.params.id);if(!Number.isInteger(id)||id<1)return res.status(400).json({error:"ID must be a positive integer"});try{const r=await pool.query("DELETE FROM products WHERE id=$1 RETURNING id",[id]);if(!r.rowCount)return res.status(404).json({error:"Product not found"});res.status(204).end()}catch(e){console.error(e.message);res.status(500).json({error:"Could not delete product"})}});
+async function start(){let last;for(let i=1;i<=20;i++){try{await init();app.listen(port,"0.0.0.0",()=>console.log(`Inventory API listening on ${port}`));return}catch(e){last=e;console.error(`Database not ready (${i}/20): ${e.message}`);await new Promise(r=>setTimeout(r,3000))}}console.error("Database initialization failed:",last?.message);process.exit(1)}
+start();

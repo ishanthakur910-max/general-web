@@ -42,7 +42,7 @@ pipeline{
        stage("health check"){
           steps{
           echo 'website health check'
-           sh 'curl -fsS -o /dev/null http://54.208.56.184'
+           sh 'curl -fsS -o /dev/null http://'13.126.49.177
 }
 }
 }
